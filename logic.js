@@ -91,6 +91,16 @@ var IPC = (function () {
     { k: 'lichBaoCaoTuan', l: 'Lịch báo cáo tuần (gửi TP + BGD)', t: 'text', v: 'Thứ 5, 15:00' },
     { k: 'appUrl', l: 'Địa chỉ trang web (link trong email)', t: 'text', v: '' }
   ];
+  /* "Thứ 5, 15:00" / "thứ 2 8h" / "Chủ nhật, 9:00" → { day: 'THURSDAY', hour: 15, text: 'Thứ 5, 15:00' }.
+   * Lịch Google chỉ đặt theo giờ chẵn, nên phút phải là 00 (hoặc bỏ trống). Sai định dạng → null. */
+  var WEEKDAY = { 2: 'MONDAY', 3: 'TUESDAY', 4: 'WEDNESDAY', 5: 'THURSDAY', 6: 'FRIDAY', 7: 'SATURDAY', 8: 'SUNDAY' };
+  function parseWeekly(s) {
+    var m = /^\s*(?:th[ứu]\s*([2-7])|(ch[ủu]\s*nh[ậa]t|cn))\s*[,\-–]?\s*(\d{1,2})\s*(?:(?::|h|g|giờ)\s*(\d{2})?)?\s*$/i.exec(String(s || ''));
+    if (!m) return null;
+    var thu = m[1] ? +m[1] : 8, hour = +m[3];
+    if (hour > 23 || (m[4] && +m[4] !== 0)) return null;
+    return { day: WEEKDAY[thu], hour: hour, text: (thu === 8 ? 'Chủ nhật' : 'Thứ ' + thu) + ', ' + ('0' + hour).slice(-2) + ':00' };
+  }
   function defaultConfig() { var o = {}; CONFIG.forEach(function (c) { o[c.k] = c.v; }); return o; }
 
   /* ---------- Ngày tháng ---------- */
@@ -491,7 +501,7 @@ var IPC = (function () {
     normNum: normNum, addMonths: addMonths, normalizeDS: normalizeDS, hetHanHDHT: hetHanHDHT, periods: periods,
     dsStatus: dsStatus, validateDS: validateDS, STAT_DEFS: STAT_DEFS, periodStats: periodStats, kpiByPM: kpiByPM,
     monthRange: monthRange, quarterStart: quarterStart, prevMonth: prevMonth,
-    CONFIG: CONFIG, defaultConfig: defaultConfig, RAIL: RAIL,
+    CONFIG: CONFIG, defaultConfig: defaultConfig, parseWeekly: parseWeekly, RAIL: RAIL,
     isDateStr: isDateStr, today: today, addDays: addDays, daysBetween: daysBetween, addWorkdays: addWorkdays,
     isWorkday: isWorkday, vn: vn, normDate: normDate, normInt: normInt, normPct: normPct, str: str, pctText: pctText,
     mstFormatOk: mstFormatOk, mstChecksumOk: mstChecksumOk, normalizeProject: normalizeProject,

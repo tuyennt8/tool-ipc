@@ -705,7 +705,7 @@ function adminConfig(box, A) {
   box.innerHTML = `<form class="panel" id="cf"><div class="panel-h"><h2>Cấu hình</h2><button class="btn primary">Lưu cấu hình</button></div><div class="panel-b grid-f">
     ${A.config.map(c => `<label class="f">${esc(c.l)}${c.t === 'list' ? `<select class="in" name="${c.k}"><option value="">— Chưa chọn —</option>${IPC.LISTS[c.o].map(o => `<option${o === c.v ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`
       : `<input class="in" name="${c.k}" value="${esc(c.t === 'pct' && c.v !== '' ? IPC.pctText(c.v) : c.v)}"${c.t === 'int' ? ' inputmode="numeric"' : ''}>`}${c.v === '' ? '<span class="hint" style="color:var(--orange-ink)">Cần cung cấp</span>' : ''}</label>`).join('')}
-    </div><div class="panel-b note">Số ngày, ngưỡng cảnh báo và KPI mặc định lấy theo file TOOL IPC.xlsx. Đổi số ngày làm hạn của mọi dự án được tính lại (trừ hạn đã sửa tay).</div></form>`;
+    </div><div class="panel-b note">Số ngày, ngưỡng cảnh báo và KPI mặc định lấy theo file TOOL IPC.xlsx. Đổi số ngày làm hạn của mọi dự án được tính lại (trừ hạn đã sửa tay). "Lịch báo cáo tuần" nhập dạng Thứ 5, 15:00 (Thứ 2 → Thứ 7 hoặc Chủ nhật, giờ chẵn); lưu xong hệ thống tự cài lại lịch gửi.</div></form>`;
   $('#cf').onsubmit = async e => {
     e.preventDefault(); const o = {};
     A.config.forEach(c => { o[c.k] = e.target.elements[c.k].value.trim(); });
