@@ -73,3 +73,29 @@ async function attachPanel(box, kind, id) {
     }
   };
 }
+
+/* ================= Tra cứu MST (Casso IDKit qua máy chủ) =================
+   Kết quả chỉ để đối chiếu; điền tên chỉ khi người dùng bấm "Điền tên". */
+const MST_NAME_FIELD = { mstCDT: 'tenCDT', mstDVHT: 'tenDVHT' };
+const GDT_URL = 'https://tracuunnt.gdt.gov.vn/tcnnt/mstdn.jsp';
+document.addEventListener('click', async ev => {
+  const b = ev.target.closest('button[data-mst]');
+  if (!b) return;
+  ev.preventDefault();
+  const form = b.form, k = b.dataset.mst, inp = form.elements[k], out = document.getElementById('mr_' + k);
+  const mst = (inp.value || '').trim(), gdt = `<a href="${GDT_URL}" target="_blank" rel="noopener noreferrer">trang Tổng cục Thuế</a>`;
+  if (!IPC.mstFormatOk(mst)) { out.innerHTML = `<p class="res-err">Nhập MST đủ 10 chữ số (hoặc 10 số-3 số) rồi bấm Tra cứu.</p>`; inp.focus(); return; }
+  out.innerHTML = '<p class="muted">Đang tra cứu…</p>';
+  try {
+    const r = await withBusy(b, 'Đang tra…', () => call('mst.lookup', { mst }));
+    if (r.chuaCauHinh) { out.innerHTML = `<p class="muted">${esc(r.msg)} Tra trên ${gdt}.</p>`; return; }
+    if (r.notFound) { out.innerHTML = `<p class="res-err">Không tìm thấy doanh nghiệp có MST ${esc(mst)}. Kiểm tra lại hoặc tra trên ${gdt}.</p>`; return; }
+    const x = r.business, active = /đang hoạt động/i.test(x.status), nk = MST_NAME_FIELD[k], nameEl = nk && form.elements[nk];
+    out.innerHTML = `<div class="mst-card"><b>${esc(x.name)}</b>
+      ${x.address ? `<div>${esc(x.address)}</div>` : ''}
+      <div class="small"><span class="tag ${active ? 'xong' : 'qua_han'}">${esc(x.status || 'Không rõ trạng thái')}</span>${x.taxDepartment ? ' · ' + esc(x.taxDepartment) : ''}</div>
+      ${nameEl && nameEl.value.trim() !== x.name ? `<button class="btn ghost" type="button" data-fill>${nameEl.value.trim() ? 'Thay tên bằng tên này' : 'Điền tên'}</button>` : ''}</div>`;
+    const fill = out.querySelector('[data-fill]');
+    if (fill) fill.onclick = e => { e.preventDefault(); nameEl.value = x.name; nameEl.dispatchEvent(new Event('input', { bubbles: true })); fill.remove(); toast('Đã điền tên theo MST'); };
+  } catch (e) { out.innerHTML = `<p class="res-err">${esc(e.message)} Có thể tra trên ${gdt}.</p>`; }
+});

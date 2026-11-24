@@ -102,6 +102,11 @@ input.in:focus, select.in:focus, textarea.in:focus { border-color: var(--blue); 
 .f.has-warn .msg { color: var(--orange-ink); }
 .f .row { display: flex; gap: 6px; align-items: center; }
 .f .row .in { flex: 1; }
+.mst-res:empty { display: none; }
+.mst-res { font-weight: 400; font-size: 13px; }
+.mst-res p { margin: 4px 0 0; }
+.mst-card { margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--paper, #fff); display: grid; gap: 4px; overflow-wrap: anywhere; }
+.mst-card .btn { justify-self: start; margin-top: 4px; }
 
 /* ---------- Thẻ, bảng ---------- */
 .panel { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
