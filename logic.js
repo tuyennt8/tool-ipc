@@ -89,8 +89,31 @@ var IPC = (function () {
     { k: 'kpiPortHDHT', l: 'KPI port ký HĐHT/tháng (mặc định)', t: 'int', v: 400 },
     { k: 'kpiPortOnline', l: 'KPI port online/tháng (mặc định)', t: 'int', v: 300 },
     { k: 'lichBaoCaoTuan', l: 'Lịch báo cáo tuần (gửi TP + BGD)', t: 'text', v: 'Thứ 5, 15:00' },
-    { k: 'appUrl', l: 'Địa chỉ trang web (link trong email)', t: 'text', v: '' }
+    { k: 'appUrl', l: 'Địa chỉ trang web (link trong email)', t: 'text', v: '' },
+    // 24/11/2026: các mốc trước đây cố định trong code — giá trị mặc định theo TOOL IPC.xlsx
+    { k: 'nguongCDTYeuCau', l: 'Cảnh báo khi ngày CĐT yêu cầu hoàn thiện còn dưới (ngày)', t: 'int', v: 90 },
+    { k: 'nguongThiCong', l: 'Cảnh báo khi ngày thi công theo yêu cầu CĐT còn dưới (ngày)', t: 'int', v: 30 },
+    { k: 'hsxpTruocThiCong', l: 'HSXP và DNTK phải xong trước ngày thi công ít nhất (ngày)', t: 'int', v: 30 },
+    { k: 'capIMoc', l: 'Cảnh báo cấp I: các mốc trước ngày FPT dự kiến hoàn thiện (ngày)', t: 'marks', v: '45, 30, 25, 20, 15, 10' },
+    { k: 'capIINgay', l: 'Cảnh báo đỏ cấp II: số ngày trước ngày CĐT yêu cầu hoàn thiện', t: 'int', v: 15 },
+    { k: 'bbQuaNgay', l: 'Biên bản bàn giao: cảnh báo nếu chưa có sau (ngày) kể từ ngày FPT hoàn thiện', t: 'int', v: 7 },
+    { k: 'pmKhongCapNhat', l: 'Báo PM không cập nhật quá (ngày làm việc)', t: 'int', v: 10 },
+    { k: 'gioCanhBao', l: 'Giờ gửi cảnh báo hằng ngày (0–23)', t: 'hour', v: 7 }
   ];
+  // "45, 30, 25" → [45, 30, 25] (giảm dần, không trùng); sai → null
+  function parseMarks(s) {
+    var parts = String(s === undefined || s === null ? '' : s).split(/[,;\s]+/).filter(Boolean);
+    if (!parts.length || parts.some(function (x) { return !/^\d{1,3}$/.test(x); })) return null;
+    var seen = {}, out = [];
+    parts.map(Number).forEach(function (n) { if (n > 0 && !seen[n]) { seen[n] = 1; out.push(n); } });
+    return out.length ? out.sort(function (a, b) { return b - a; }) : null;
+  }
+  // Lấy số từ cấu hình, sai/trống thì dùng mặc định
+  function cfgNum(cfg, k) {
+    var v = cfg && cfg[k], d = CONFIG.filter(function (c) { return c.k === k; })[0];
+    return v === '' || v === null || v === undefined || isNaN(+v) ? (d ? +d.v : 0) : +v;
+  }
+  function cfgMarks(cfg) { return parseMarks(cfg && cfg.capIMoc) || [45, 30, 25, 20, 15, 10]; }
   /* "Thứ 5, 15:00" / "thứ 2 8h" / "Chủ nhật, 9:00" → { day: 'THURSDAY', hour: 15, text: 'Thứ 5, 15:00' }.
    * Lịch Google chỉ đặt theo giờ chẵn, nên phút phải là 00 (hoặc bỏ trống). Sai định dạng → null. */
   var WEEKDAY = { 2: 'MONDAY', 3: 'TUESDAY', 4: 'WEDNESDAY', 5: 'THURSDAY', 6: 'FRIDAY', 7: 'SATURDAY', 8: 'SUNDAY' };
@@ -233,15 +256,15 @@ var IPC = (function () {
     if (p.ngayFPTHoanThien) ht.st = 'xong';
     else if (p.ngayFPTDuKien) {
       if (td > p.ngayFPTDuKien) { ht.st = 'qua_han'; ht.cap = 3; }
-      else if (p.ngayCDTYeuCau && td <= p.ngayCDTYeuCau && daysBetween(td, p.ngayCDTYeuCau) <= 15) { ht.st = 'qua_han'; ht.cap = 2; }
-      else if (daysBetween(td, p.ngayFPTDuKien) <= 45) { ht.st = 'sap_han'; ht.cap = 1; }
+      else if (p.ngayCDTYeuCau && td <= p.ngayCDTYeuCau && daysBetween(td, p.ngayCDTYeuCau) <= cfgNum(cfg, 'capIINgay')) { ht.st = 'qua_han'; ht.cap = 2; }
+      else if (daysBetween(td, p.ngayFPTDuKien) <= cfgMarks(cfg)[0]) { ht.st = 'sap_han'; ht.cap = 1; }
       else ht.st = 'dung_han';
     }
     r.ht = ht;
     // Biên bản bàn giao — quá 7 ngày kể từ ngày FPT hoàn thiện mà chưa có
     var bb = { st: 'cho', d: p.ngayBBBanGiao };
     if (p.ngayBBBanGiao) bb.st = 'xong';
-    else if (p.ngayFPTHoanThien) bb.st = daysBetween(p.ngayFPTHoanThien, td) > 7 ? 'qua_han' : 'dung_han';
+    else if (p.ngayFPTHoanThien) bb.st = daysBetween(p.ngayFPTHoanThien, td) > cfgNum(cfg, 'bbQuaNgay') ? 'qua_han' : 'dung_han';
     r.bb = bb;
     r.online = { st: p.ngayOnline ? 'xong' : 'cho', d: p.ngayOnline };
     return RAIL.map(function (x) { var o = r[x.k]; o.k = x.k; o.l = x.l; return o; });
@@ -318,13 +341,14 @@ var IPC = (function () {
       if ((p.hinhThuc === 'BQT' || p.hinhThuc === 'CĐT') && +p.tiLe > +cfg.nguongTiLeCDT) w('tiLe', 'Hình thức ' + p.hinhThuc + ' nhưng tỉ lệ ' + pctText(+p.tiLe) + ' vượt ' + pctText(+cfg.nguongTiLeCDT) + '.');
     }
     // Bước 3
-    if (p.ngayCDTYeuCau && changed('ngayCDTYeuCau') && daysBetween(td, p.ngayCDTYeuCau) < 90)
-      w('ngayCDTYeuCau', 'Ngày CĐT yêu cầu hoàn thiện hạ tầng chỉ còn ' + daysBetween(td, p.ngayCDTYeuCau) + ' ngày (dưới 90 ngày).');
-    if (p.ngayThiCong && changed('ngayThiCong') && daysBetween(td, p.ngayThiCong) < 30)
-      w('ngayThiCong', 'Ngày thi công theo yêu cầu CĐT chỉ còn ' + daysBetween(td, p.ngayThiCong) + ' ngày (dưới 30 ngày).');
+    var nCDT = cfgNum(cfg, 'nguongCDTYeuCau'), nTC = cfgNum(cfg, 'nguongThiCong'), nHS = cfgNum(cfg, 'hsxpTruocThiCong');
+    if (p.ngayCDTYeuCau && changed('ngayCDTYeuCau') && daysBetween(td, p.ngayCDTYeuCau) < nCDT)
+      w('ngayCDTYeuCau', 'Ngày CĐT yêu cầu hoàn thiện hạ tầng chỉ còn ' + daysBetween(td, p.ngayCDTYeuCau) + ' ngày (dưới ' + nCDT + ' ngày).');
+    if (p.ngayThiCong && changed('ngayThiCong') && daysBetween(td, p.ngayThiCong) < nTC)
+      w('ngayThiCong', 'Ngày thi công theo yêu cầu CĐT chỉ còn ' + daysBetween(td, p.ngayThiCong) + ' ngày (dưới ' + nTC + ' ngày).');
     ['ngayHSXP', 'ngayDNTK'].forEach(function (k) {
-      if (p[k] && p.ngayThiCong && (changed(k) || changed('ngayThiCong')) && daysBetween(p[k], p.ngayThiCong) < 30)
-        w(k, FIELD[k].l + ' (' + vn(p[k]) + ') không sớm hơn ngày thi công theo yêu cầu CĐT (' + vn(p.ngayThiCong) + ') ít nhất 30 ngày.');
+      if (p[k] && p.ngayThiCong && (changed(k) || changed('ngayThiCong')) && daysBetween(p[k], p.ngayThiCong) < nHS)
+        w(k, FIELD[k].l + ' (' + vn(p[k]) + ') không sớm hơn ngày thi công theo yêu cầu CĐT (' + vn(p.ngayThiCong) + ') ít nhất ' + nHS + ' ngày.');
     });
     return { errors: E, warnings: W };
   }
@@ -501,7 +525,7 @@ var IPC = (function () {
     normNum: normNum, addMonths: addMonths, normalizeDS: normalizeDS, hetHanHDHT: hetHanHDHT, periods: periods,
     dsStatus: dsStatus, validateDS: validateDS, STAT_DEFS: STAT_DEFS, periodStats: periodStats, kpiByPM: kpiByPM,
     monthRange: monthRange, quarterStart: quarterStart, prevMonth: prevMonth,
-    CONFIG: CONFIG, defaultConfig: defaultConfig, parseWeekly: parseWeekly, RAIL: RAIL,
+    CONFIG: CONFIG, defaultConfig: defaultConfig, parseWeekly: parseWeekly, parseMarks: parseMarks, cfgNum: cfgNum, cfgMarks: cfgMarks, RAIL: RAIL,
     isDateStr: isDateStr, today: today, addDays: addDays, daysBetween: daysBetween, addWorkdays: addWorkdays,
     isWorkday: isWorkday, vn: vn, normDate: normDate, normInt: normInt, normPct: normPct, str: str, pctText: pctText,
     mstFormatOk: mstFormatOk, mstChecksumOk: mstChecksumOk, normalizeProject: normalizeProject,

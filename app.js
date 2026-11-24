@@ -131,7 +131,7 @@ function gate(o) {
     <h1>Quản trị dự án IPC</h1>
     <p>Theo dõi tiến độ đầu tư hạ tầng viễn thông tòa nhà và khu đô thị.</p>
     ${inner}
-    <p class="foot">Đăng nhập bằng tài khoản Google đã được Giám đốc trung tâm cấp quyền. Mỗi người chỉ xem dự án trong phạm vi của mình.</p>
+    <p class="foot">Đăng nhập bằng tài khoản Google đã được Giám đốc trung tâm cấp quyền. Mỗi người chỉ xem dự án trong phạm vi của mình. <a href="privacy.html">Chính sách quyền riêng tư</a></p>
   </div></div>`;
   const f = $('.dev-pick', app);
   if (f) f.onsubmit = e => { e.preventDefault(); o.onDev(f.e.value.trim().toLowerCase()); };

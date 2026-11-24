@@ -474,7 +474,7 @@ async function adminJobs(box) {
   box.innerHTML = `
     <div class="stats"><div class="stat"><b>${J.quota}</b><span>Email còn gửi được hôm nay</span></div><div class="stat ${J.pending ? 'orange' : ''}"><b>${J.pending}</b><span>Cảnh báo chờ gửi</span></div>
       <div class="stat ${hasTrig ? 'green' : 'red'}"><b>${hasTrig ? 'Đang bật' : 'Chưa cài'}</b><span>Lịch chạy tự động</span></div><div class="stat"><b>${J.todayJobs.length}</b><span>Việc chạy sáng nay</span></div></div>
-    ${hasTrig ? '' : `<div class="alert warn">Lịch chạy tự động chưa được cài. Bấm <b>Cài lịch chạy</b> để hệ thống tự gửi cảnh báo 7h hằng ngày và báo cáo tuần vào ${esc(S.cfg.lichBaoCaoTuan || 'Thứ 5, 15:00')}.</div>`}
+    ${hasTrig ? '' : `<div class="alert warn">Lịch chạy tự động chưa được cài. Bấm <b>Cài lịch chạy</b> để hệ thống tự gửi cảnh báo lúc ${IPC.cfgNum(S.cfg, 'gioCanhBao')}h hằng ngày và báo cáo tuần vào ${esc(S.cfg.lichBaoCaoTuan || 'Thứ 5, 15:00')}.</div>`}
     ${S.cfg.loopEmail ? '' : `<div class="alert warn">Chưa có email loop IPCMB ở Cấu hình — cảnh báo quá hạn sẽ gửi cho BGD thay thế.</div>`}
     <div class="panel"><div class="panel-h"><h2>Báo cáo và cảnh báo tự động</h2><button class="btn" id="bTrig">Cài lịch chạy</button></div>
       <div class="tw"><table class="t"><thead><tr><th>Báo cáo</th><th><span class="sr-only">Thao tác</span></th></tr></thead><tbody>${J.jobs.map(j => `<tr><td>${esc(j.l)}${J.todayJobs.includes(j.k) ? ' <span class="tag on">Chạy hôm nay</span>' : ''}</td>
