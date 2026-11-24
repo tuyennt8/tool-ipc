@@ -307,3 +307,13 @@ details.mail summary { padding: 10px 12px; cursor: pointer; }
 @media (min-width: 861px) { .mtop { display: none; } }
 .t.kpi td:nth-child(-n+2), .t.kpi td:last-child { white-space: nowrap; }
 dialog.dlg:has(details.mail) { width: min(900px, calc(100vw - 32px)); }
+/* File đính kèm, bộ lọc Tổng quan */
+.att-status { list-style: none; margin: 0; padding: 0 18px; display: grid; gap: 4px; font-size: 13px; }
+.att-status:empty { display: none; }
+.att-status li:first-child { padding-top: 12px; }
+.ov-filters { margin-bottom: 16px; }
+.ov-filters .search { flex: 1 1 240px; }
+.menu-list a:hover { background: var(--line-2); }
+.btn.ghost.danger { color: var(--red); }
+.name .linkbtn { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

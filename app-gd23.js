@@ -79,13 +79,62 @@ function alertsPanel(alerts) {
       ${alerts.length > 6 ? `<div class="panel-b note">Còn ${alerts.length - 6} cảnh báo khác — xem trong danh sách dự án và đối soát.</div>` : ''}`
     : `<div class="empty"><h3>Không có cảnh báo</h3><p>Không có mốc nào sắp đến hạn hay quá hạn trong phạm vi của bạn.</p></div>`}</div>`;
 }
+/* Bộ lọc Tổng quan: phòng, PM, khu vực, chi nhánh, CĐT / đơn vị hợp tác / MST — nằm trên URL (#/?phong=…&pm=…) */
+const OV_KEYS = ['phong', 'pm', 'kv', 'cn', 'q'];
+let ALERT_CACHE = null;
+async function cachedAlerts() {
+  if (ALERT_CACHE && Date.now() - ALERT_CACHE.t < 60000) return ALERT_CACHE.a;
+  const a = (await call('alerts.list')).alerts; ALERT_CACHE = { t: Date.now(), a }; return a;
+}
+function filterProjects(ps, f) {
+  const q = (f.q || '').trim().toLowerCase();
+  return ps.filter(p => (!f.phong || p.phong === f.phong) && (!f.pm || p.emailPM === f.pm) && (!f.kv || p.khuVuc === f.kv) && (!f.cn || p.maCN === f.cn)
+    && (!q || [p.tenCDT, p.mstCDT, p.tenDVHT, p.mstDVHT].join(' ').toLowerCase().includes(q)));
+}
+const qsOf = o => { const q = new URLSearchParams(); Object.keys(o).forEach(k => { if (o[k]) q.set(k, o[k]); }); const s = q.toString(); return s ? '?' + s : ''; };
+function overviewFilters(psAll, f, key) {
+  const P = S.perms, opt = (v, l, cur) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`;
+  const pms = [...new Set(psAll.filter(p => !f.phong || p.phong === f.phong).map(p => p.emailPM))].map(e => ({ e, n: (S.userMap[e] || {}).hoTen || e })).sort((a, b) => a.n.localeCompare(b.n, 'vi'));
+  const cns = S.cn.filter(c => !f.kv || c.khuVuc === f.kv);
+  const active = OV_KEYS.some(k => f[k]);
+  return `<form class="panel filters ov-filters" id="ovf" aria-label="Lọc số liệu tổng quan">
+    ${P.bgd || P.tpVanHanh ? `<select class="in" name="phong" aria-label="Phòng"><option value="">Tất cả phòng</option>${IPC.PHONG_DAU_TU.map(x => opt(x, x, f.phong)).join('')}</select>` : ''}
+    ${P.bgd || P.tpDauTu || P.tpVanHanh ? `<select class="in" name="pm" aria-label="PM"><option value="">Tất cả PM</option>${pms.map(x => opt(x.e, x.n, f.pm)).join('')}</select>` : ''}
+    <select class="in" name="kv" aria-label="Khu vực"><option value="">Tất cả khu vực</option>${S.kv.map(k => opt(k.ma, k.ma, f.kv)).join('')}</select>
+    <select class="in" name="cn" aria-label="Chi nhánh"><option value="">Tất cả chi nhánh</option>${cns.map(c => opt(c.ma, c.ma + ' – ' + c.ten, f.cn)).join('')}</select>
+    <input class="in search" name="q" type="search" value="${esc(f.q)}" placeholder="CĐT, đơn vị hợp tác, MST…" title="Gõ rồi nhấn Enter để lọc" aria-label="Lọc theo chủ đầu tư, đơn vị hợp tác hoặc MST (nhấn Enter để lọc)" autocomplete="off" spellcheck="false">
+    ${active ? `<a class="btn ghost" href="#/${qsOf({ ky: key === 'thang' ? '' : key })}">Bỏ lọc</a>` : ''}
+  </form>`;
+}
+function bindOverviewFilters(f, key) {
+  const form = $('#ovf'); if (!form) return;
+  const go = () => {
+    const o = { ky: key === 'thang' ? '' : key };
+    OV_KEYS.forEach(k => { o[k] = form.elements[k] ? form.elements[k].value.trim() : ''; });
+    if (o.phong !== f.phong) o.pm = ''; // đổi phòng → bỏ PM cũ
+    if (o.kv !== f.kv) o.cn = '';       // đổi khu vực → bỏ chi nhánh cũ
+    location.hash = '#/' + qsOf(o);
+  };
+  form.querySelectorAll('select').forEach(s => s.addEventListener('change', go));
+  form.addEventListener('submit', e => { e.preventDefault(); go(); });
+  form.elements.q.addEventListener('change', go);
+}
 async function viewOverview(Q) {
   loadingView();
   const P = S.perms, key = (Q && Q.get('ky')) || 'thang', rg = rangeOf(key, S.today);
-  const [alerts] = await Promise.all([call('alerts.list').then(r => r.alerts), P.xemDuAn ? loadProjects() : null, loadDs().catch(() => [])]);
+  const f = {}; OV_KEYS.forEach(k => { f[k] = (Q && Q.get(k)) || ''; });
+  const active = OV_KEYS.some(k => f[k]);
+  const [alertsAll] = await Promise.all([cachedAlerts(), P.xemDuAn ? loadProjects() : null, loadDs().catch(() => [])]);
   const head = `<div class="page-head"><div><h1>Tổng quan</h1><p>Cập nhật đến ngày ${vn(S.today)}.</p></div>
     ${P.taoDuAn ? `<div class="actions"><a class="btn primary" href="#/du-an/moi">${ico('plus')}Thêm dự án</a></div>` : ''}</div>`;
-  const ds = S.ds || [];
+  const dsAll = S.ds || [];
+  let ds = dsAll, alerts = alertsAll, ids = null;
+  if (P.xemDuAn && active) {
+    ids = new Set(filterProjects(S.projects, f).map(p => p.id));
+    const dsById = {}; dsAll.forEach(d => { dsById[d.id] = d; });
+    ds = dsAll.filter(d => ids.has(d.maDuAn));
+    alerts = alertsAll.filter(a => a.kind === 'du_an' ? ids.has(a.ref) : (dsById[a.ref] && ids.has(dsById[a.ref].maDuAn)));
+  }
   const dsTiles = () => { const c = s => ds.filter(d => d._status === s).length; return `
     <a class="stat" href="#/doi-soat"><b>${ds.length}</b><span>Hồ sơ đối soát</span></a>
     <a class="stat red" href="#/doi-soat?st=den_han"><b>${c('den_han')}</b><span>Đến hạn đối soát</span></a>
@@ -95,7 +144,8 @@ async function viewOverview(Q) {
     view().innerHTML = head + `<div class="stats">${dsTiles()}</div>` + alertsPanel(alerts);
     return;
   }
-  const ps = S.projects, c = { qua: 0, sap: 0, online: 0 }, stages = {};
+  const ps = active ? filterProjects(S.projects, f) : S.projects, c = { qua: 0, sap: 0, online: 0 }, stages = {};
+  const lf = { phong: f.phong, pm: f.pm, kv: f.kv, cn: f.cn, q: f.q }; // chuyển bộ lọc sang danh sách dự án
   ps.forEach(p => { if (p._health === 'qua_han') c.qua++; if (p._health === 'sap_han') c.sap++; if (p.ngayOnline) c.online++; stages[p._stage] = (stages[p._stage] || 0) + 1; });
   const st = IPC.periodStats(ps, rg.from, rg.to);
   const order = ['Mới tạo', 'Bước 1–2: Hồ sơ', 'Bước 3: Triển khai', 'Bước 4: Khai thác', 'Đã online'], max = Math.max(1, ...Object.values(stages));
@@ -108,16 +158,17 @@ async function viewOverview(Q) {
     pmRows = Object.keys(g).map(e => ({ e, n: (S.userMap[e] || {}).hoTen || e, ph: (S.userMap[e] || {}).phong || '', l: g[e], s: IPC.periodStats(g[e], rg.from, rg.to) }))
       .sort((a, b) => a.n.localeCompare(b.n, 'vi')).map(x => `<tr><td>${esc(x.n)}</td><td>${esc(x.ph)}</td><td class="num">${x.l.length}</td><td class="num">${fmtN(x.s.portHDHT)}</td><td class="num">${fmtN(x.s.portOnline)}</td><td class="num">${x.s.kstk}</td><td class="num">${x.s.thamDinh}</td><td class="num">${x.s.kyHDHT}</td><td class="num">${x.s.dntk}</td><td class="num">${x.s.hsxp}</td><td class="num">${x.l.filter(p => p._health === 'qua_han').length}</td></tr>`).join('');
   }
-  view().innerHTML = head + `
+  view().innerHTML = head + overviewFilters(S.projects, f, key) + `
+    ${active ? `<p class="note" style="margin:-6px 0 12px">Đang lọc: ${ps.length}/${S.projects.length} dự án. Các số liệu, cảnh báo và biểu đồ bên dưới chỉ tính các dự án này.</p>` : ''}
     <div class="stats">
-      <a class="stat" href="#/du-an"><b>${ps.length}</b><span>Dự án ${esc(scope)}</span></a>
-      <a class="stat red" href="#/du-an?health=qua_han"><b>${c.qua}</b><span>Có mốc quá hạn</span></a>
-      <a class="stat orange" href="#/du-an?health=sap_han"><b>${c.sap}</b><span>Có mốc sắp đến hạn</span></a>
-      <a class="stat green" href="#/du-an?stage=${encodeURIComponent('Đã online')}"><b>${c.online}</b><span>Đã online</span></a>
+      <a class="stat" href="#/du-an${qsOf(lf)}"><b>${ps.length}</b><span>Dự án ${esc(scope)}${active ? ' (đang lọc)' : ''}</span></a>
+      <a class="stat red" href="#/du-an${qsOf(Object.assign({}, lf, { health: 'qua_han' }))}"><b>${c.qua}</b><span>Có mốc quá hạn</span></a>
+      <a class="stat orange" href="#/du-an${qsOf(Object.assign({}, lf, { health: 'sap_han' }))}"><b>${c.sap}</b><span>Có mốc sắp đến hạn</span></a>
+      <a class="stat green" href="#/du-an${qsOf(Object.assign({}, lf, { stage: 'Đã online' }))}"><b>${c.online}</b><span>Đã online</span></a>
     </div>
     ${alertsPanel(alerts)}
     <div class="panel"><div class="panel-h"><h2>Hoạt động: ${esc(rg.l.toLowerCase())}</h2>
-      <div class="seg" role="group" aria-label="Chọn khoảng thời gian">${RANGE_KEYS.map(k => `<a href="#/?ky=${k[0]}"${k[0] === key ? ' aria-current="true"' : ''}>${k[1]}</a>`).join('')}</div></div>
+      <div class="seg" role="group" aria-label="Chọn khoảng thời gian">${RANGE_KEYS.map(k => `<a href="#/${qsOf(Object.assign({}, lf, { ky: k[0] === 'thang' ? '' : k[0] }))}"${k[0] === key ? ' aria-current="true"' : ''}>${k[1]}</a>`).join('')}</div></div>
       <div class="panel-b"><div class="mini-stats">${act.map(a => `<div><b>${fmtN(st[a[0]])}</b><span>${a[1]}</span></div>`).join('')}</div>
       <p class="note" style="margin:10px 0 0">Từ ${vn(rg.from)} đến ${vn(rg.to)}. Mỗi số đếm dự án có ngày tương ứng nằm trong khoảng; port ký HĐHT = tổng port đầu tư của dự án ký HĐHT trong khoảng.</p></div></div>
     <div class="panel"><div class="panel-h"><h2>Port theo tháng</h2></div><div class="panel-b">${barChart(monthSeries(ps, S.today, 12))}</div></div>
@@ -126,6 +177,7 @@ async function viewOverview(Q) {
       ${order.map(s => `<div class="stage-row"><span>${s}</span><div class="bar"><i style="width:${(stages[s] || 0) / max * 100}%"></i></div><b class="num">${stages[s] || 0}</b></div>`).join('')}
     </div></div>
     ${ds.length ? `<div class="stats" style="margin-top:16px">${dsTiles()}</div>` : ''}`;
+  bindOverviewFilters(f, key);
 }
 
 /* ================= Menu (điện thoại) ================= */
@@ -143,7 +195,7 @@ async function viewDsList(Q) {
   view().innerHTML = `<div class="page-head"><div><h1>Đối soát</h1><p>Hồ sơ đối soát hợp đồng hợp tác với chủ đầu tư và đối tác.</p></div>
     ${P.taoDoiSoat ? `<div class="actions"><a class="btn primary" href="#/doi-soat/moi">${ico('plus')}Thêm hồ sơ</a></div>` : ''}</div>
     <div class="panel"><div class="filters">
-      <input class="in search" type="search" data-f="q" placeholder="Tìm theo mã hồ sơ, Mã Inside, tên dự án…" value="${esc(f.q)}" aria-label="Tìm hồ sơ" autocomplete="off">
+      <input class="in search" type="search" data-f="q" placeholder="Tìm theo mã hồ sơ, Mã Inside, tên dự án…" spellcheck="false" value="${esc(f.q)}" aria-label="Tìm hồ sơ" autocomplete="off">
       <select class="in" data-f="cbds" aria-label="CBDS"><option value="">Tất cả CBDS</option><option value="-"${f.cbds === '-' ? ' selected' : ''}>Chưa giao</option>${cbdsList.map(u => `<option value="${esc(u.email)}"${f.cbds === u.email ? ' selected' : ''}>${esc(u.hoTen || u.email)}</option>`).join('')}</select>
       <select class="in" data-f="st" aria-label="Tình trạng"><option value="">Mọi tình trạng</option>${Object.keys(DS_ST).map(k => `<option value="${k}"${f.st === k ? ' selected' : ''}>${DS_ST[k]}</option>`).join('')}</select>
       <span class="count" id="cnt"></span></div><div id="dlist"></div></div>`;
@@ -196,22 +248,24 @@ async function viewDsDetail(id, Q) {
       ${P.bgd || (P.tpVanHanh && P.xoa) ? `<button class="btn danger" id="bDel">${ico('trash')}Xóa</button>` : ''}
     </div></div>
     ${d._status === 'thieu' ? `<div class="alert warn">Hồ sơ còn thiếu thông tin${!d.ngayBatDau ? ', trong đó có ngày bắt đầu kỳ đối soát (ngày có khách hàng đầu tiên)' : ''}. ${d._edit ? 'Bấm Cập nhật để bổ sung.' : ''}</div>` : ''}
-    <div class="tabs" role="tablist"><button role="tab" data-t="info">Thông tin</button><button role="tab" data-t="ky">Kỳ đối soát (${d._periods.length})</button><button role="tab" data-t="hist">Lịch sử thay đổi (${r.history.length})</button></div>
+    <div class="tabs" role="tablist"><button role="tab" data-t="info">Thông tin</button><button role="tab" data-t="ky">Kỳ đối soát (${d._periods.length})</button><button role="tab" data-t="files">File đính kèm</button><button role="tab" data-t="hist">Lịch sử thay đổi (${r.history.length})</button></div>
     <div id="tab"></div>`;
   const tabs = {
     info: () => `<div class="panel"><div class="panel-b"><dl class="kv">${IPC.DS_FIELDS.map(f => { const t = dsFieldText(f, d[f.k]); return `<div class="${f.wide ? 'wide' : ''}"><dt>${esc(f.l)}</dt><dd class="${t ? '' : 'none'}">${t ? esc(t) : 'Chưa nhập'}</dd></div>`; }).join('')}</dl></div></div>`,
-    ky: () => d._periods.length ? `<div class="panel"><div class="tw"><table class="t"><thead><tr><th>Loại</th><th>Kỳ</th><th>Từ ngày</th><th>Hạn</th><th>Tình trạng</th><th>Thực hiện</th>${full ? '<th></th>' : ''}</tr></thead><tbody>
+    ky: () => d._periods.length ? `<div class="panel"><div class="tw"><table class="t"><thead><tr><th>Loại</th><th>Kỳ</th><th>Từ ngày</th><th>Hạn</th><th>Tình trạng</th><th>Thực hiện</th>${full ? '<th><span class="sr-only">Thao tác</span></th>' : ''}</tr></thead><tbody>
       ${d._periods.slice().reverse().map(k => `<tr><td>${esc(k.loaiTen)}</td><td class="num">${k.n}</td><td>${vn(k.tu)}</td><td>${vn(k.han)}</td>
         <td><span class="tag ${KY_CLS[k.st]}">${k.st === 'xong' ? esc(k.trangThai) : KY_ST[k.st]}</span></td>
         <td class="small">${k.ngay ? vn(k.ngay) + ' · ' + esc((S.userMap[k.nguoi] || {}).hoTen || k.nguoi) : ''}</td>
         ${full ? `<td><div class="actions">${k.st === 'xong' ? `<button class="btn ghost" data-ky="${k.loai}|${k.n}|">Mở lại</button>` : `<button class="btn ghost" data-ky="${k.loai}|${k.n}|Đã đối soát">Đã đối soát</button><button class="btn ghost" data-ky="${k.loai}|${k.n}|Đã thanh toán">Đã thanh toán</button>`}</div></td>` : ''}</tr>`).join('')}
       </tbody></table></div><div class="panel-b note">Kỳ n có hạn = ngày bắt đầu kỳ đối soát + n × độ dài kỳ. Danh sách hiện các kỳ đã đến hạn và kỳ kế tiếp, không vượt ngày hết hạn HĐHT.</div></div>`
       : `<div class="panel"><div class="empty"><h3>Chưa tính được kỳ đối soát</h3><p>Cần ngày bắt đầu kỳ đối soát và ít nhất một loại đối soát chọn "Có" kèm kỳ (tháng, quý, 6 tháng, năm).</p></div></div>`,
-    hist: () => r.history.length ? `<div class="panel"><div class="panel-b hist">${r.history.map(h => `<div class="h"><time>${esc(String(h.luc).replace('T', ' '))}</time><div><b>${esc(h.hanhDong)}</b> · ${esc(h.email)}${h.truong ? `<div class="chg">${esc(h.truong)}: <s>${esc(h.cu || '(trống)')}</s> → ${esc(h.moi || '(trống)')}</div>` : ''}${h.ghiChu ? `<div class="note">${esc(h.ghiChu)}</div>` : ''}</div></div>`).join('')}</div></div>` : `<div class="panel"><div class="empty">Chưa có thay đổi nào.</div></div>`
+    hist: () => r.history.length ? `<div class="panel"><div class="panel-b hist">${r.history.map(h => `<div class="h"><time>${esc(String(h.luc).replace('T', ' '))}</time><div><b>${esc(h.hanhDong)}</b> · ${esc(h.email)}${h.truong ? `<div class="chg">${esc(h.truong)}: <s>${esc(h.cu || '(trống)')}</s> → ${esc(h.moi || '(trống)')}</div>` : ''}${h.ghiChu ? `<div class="note">${esc(h.ghiChu)}</div>` : ''}</div></div>`).join('')}</div></div>` : `<div class="panel"><div class="empty">Chưa có thay đổi nào.</div></div>`,
+    files: () => ''
   };
   const show = (t, sync) => {
     $$('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.t === t)));
     $('#tab').innerHTML = tabs[t]();
+    if (t === 'files') attachPanel($('#tab'), 'doi_soat', d.id);
     $$('[data-ky]').forEach(b => b.onclick = async () => {
       const [loai, ky, trangThai] = b.dataset.ky.split('|');
       const ghiChu = await dialog({ title: trangThai ? trangThai + ': kỳ ' + ky : 'Mở lại kỳ ' + ky, body: `<label class="f">Ghi chú (không bắt buộc)<input class="in" id="gc" autocomplete="off" placeholder="VD: số chứng từ, số tiền đối soát…"></label>`, buttons: [{ l: 'Hủy', v: null }, { l: trangThai || 'Mở lại kỳ', cls: 'primary', v: x => $('#gc', x).value }] });
@@ -423,20 +477,20 @@ async function adminJobs(box) {
     ${hasTrig ? '' : `<div class="alert warn">Lịch chạy tự động chưa được cài. Bấm <b>Cài lịch chạy</b> để hệ thống tự gửi cảnh báo 7h hằng ngày và báo cáo tuần vào ${esc(S.cfg.lichBaoCaoTuan || 'Thứ 5, 15:00')}.</div>`}
     ${S.cfg.loopEmail ? '' : `<div class="alert warn">Chưa có email loop IPCMB ở Cấu hình — cảnh báo quá hạn sẽ gửi cho BGD thay thế.</div>`}
     <div class="panel"><div class="panel-h"><h2>Báo cáo và cảnh báo tự động</h2><button class="btn" id="bTrig">Cài lịch chạy</button></div>
-      <div class="tw"><table class="t"><thead><tr><th>Báo cáo</th><th></th></tr></thead><tbody>${J.jobs.map(j => `<tr><td>${esc(j.l)}${J.todayJobs.includes(j.k) ? ' <span class="tag on">Chạy hôm nay</span>' : ''}</td>
+      <div class="tw"><table class="t"><thead><tr><th>Báo cáo</th><th><span class="sr-only">Thao tác</span></th></tr></thead><tbody>${J.jobs.map(j => `<tr><td>${esc(j.l)}${J.todayJobs.includes(j.k) ? ' <span class="tag on">Chạy hôm nay</span>' : ''}</td>
         <td><div class="actions"><button class="btn ghost" data-prev="${j.k}">Xem trước</button><button class="btn ghost" data-run="${j.k}">Gửi ngay</button></div></td></tr>`).join('')}</tbody></table></div>
       <div class="panel-b note">Gmail cá nhân gửi được khoảng 100 người nhận/ngày. Mỗi người nhận 1 email cảnh báo gộp/ngày; khi gần hết hạn mức, người có cảnh báo khẩn được gửi trước, phần còn lại gửi vào hôm sau. Báo cáo tuần chạy vào ${esc(S.cfg.lichBaoCaoTuan || 'Thứ 5, 15:00')}; đổi ở Cấu hình → "Lịch báo cáo tuần", lưu xong hệ thống tự cài lại lịch. Google chạy lịch trong vòng 1 giờ kể từ giờ đặt.</div></div>
     <div class="panel"><div class="panel-h"><h2>Lần chạy gần đây</h2></div>${J.runs.length ? `<div class="tw"><table class="t"><thead><tr><th>Thời điểm</th><th>Việc</th><th>Kết quả</th></tr></thead><tbody>${J.runs.map(r => `<tr><td>${esc(String(r.luc).replace('T', ' '))}</td><td>${esc(r.hanhDong)}</td><td class="small">${esc(r.ghiChu)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Chưa có lần chạy nào.</div>'}</div>
     <div class="panel"><div class="panel-h"><h2>Hàng đợi cảnh báo (50 mục gần nhất)</h2></div>${J.recent.length ? `<div class="tw"><table class="t"><thead><tr><th>Thời điểm</th><th>Loại</th><th>Mã</th><th>Người nhận</th><th>Trạng thái</th></tr></thead><tbody>${J.recent.map(r => `<tr><td class="small">${esc(String(r.luc).replace('T', ' '))}</td><td>${esc(r.loai)}</td><td translate="no">${esc(r.ma)}</td><td class="small">${esc(r.nguoiNhan)}</td><td><span class="tag ${/^Đã gửi/.test(r.trangThai) ? 'xong' : /^Chờ/.test(r.trangThai) ? 'sap_han' : ''}">${esc(r.trangThai)}</span></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Hàng đợi trống.</div>'}</div>`;
-  $('#bTrig').onclick = async () => { try { await call('admin.installTriggers'); toast('Đã cài lịch chạy tự động'); adminJobs(box); } catch (e) { toast(e.message, true); } };
+  $('#bTrig').onclick = async e => { try { await withBusy(e.currentTarget, 'Đang cài…', () => call('admin.installTriggers')); toast('Đã cài lịch chạy tự động'); adminJobs(box); } catch (err) { toast(err.message, true); } };
   $$('[data-prev]', box).forEach(b => b.onclick = async () => {
     try {
-      const r = await call('admin.previewJob', { job: b.dataset.prev });
+      const r = await withBusy(b, 'Đang tạo…', () => call('admin.previewJob', { job: b.dataset.prev }));
       await dialog({ title: 'Xem trước: ' + (J.jobs.find(j => j.k === b.dataset.prev) || {}).l, body: r.messages.length ? `<p class="muted">${r.messages.length} email sẽ được gửi. Không có email nào được gửi khi xem trước.</p>${r.messages.map(m => `<details class="mail"><summary><b>${esc(m.subject)}</b><br><span class="small muted">Đến: ${esc(m.to)}</span></summary><div class="mail-body">${m.html}</div></details>`).join('')}` : '<p>Hôm nay không có nội dung cần gửi cho báo cáo này.</p>' });
     } catch (e) { toast(e.message, true); }
   });
   $$('[data-run]', box).forEach(b => b.onclick = async () => {
     if (!await confirmDlg('Gửi ngay', 'Gửi email thật cho báo cáo này ngay bây giờ? Email sẽ tính vào hạn mức gửi hôm nay.', 'Gửi ngay')) return;
-    try { const r = await call('admin.runJob', { job: b.dataset.run }); toast(`Đã gửi ${r.sent} email${r.skipped ? ', bỏ qua ' + r.skipped + ' do hết hạn mức' : ''}`); adminJobs(box); } catch (e) { toast(e.message, true); }
+    try { const r = await withBusy(b, 'Đang gửi…', () => call('admin.runJob', { job: b.dataset.run })); toast(`Đã gửi ${r.sent} email${r.skipped ? ', bỏ qua ' + r.skipped + ' do hết hạn mức' : ''}`); adminJobs(box); } catch (e) { toast(e.message, true); }
   });
 }

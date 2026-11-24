@@ -299,7 +299,7 @@ function setHashQuery(path, obj) {
 }
 
 /* ================= Danh sách dự án ================= */
-const FILTER_KEYS = ['q', 'phong', 'pm', 'kv', 'stage', 'health'];
+const FILTER_KEYS = ['q', 'phong', 'pm', 'kv', 'cn', 'stage', 'health'];
 async function viewProjects(Q) {
   loadingView();
   const ps = await loadProjects();
@@ -317,6 +317,7 @@ async function viewProjects(Q) {
         ${P.bgd || P.tpVanHanh ? sel('phong', 'Tất cả phòng', IPC.PHONG_DAU_TU.map(x => ({ v: x, l: x }))) : ''}
         ${P.bgd || P.tpDauTu || P.tpVanHanh ? sel('pm', 'Tất cả PM', pms.map(x => ({ v: x.e, l: x.n }))) : ''}
         ${sel('kv', 'Tất cả khu vực', kvs.map(x => ({ v: x, l: x })))}
+        ${sel('cn', 'Tất cả chi nhánh', [...new Set(ps.map(p => p.maCN))].sort().map(x => ({ v: x, l: x })))}
         ${sel('stage', 'Tất cả các bước', ['Mới tạo', 'Bước 1–2: Hồ sơ', 'Bước 3: Triển khai', 'Bước 4: Khai thác', 'Đã online'].map(x => ({ v: x, l: x })))}
         ${sel('health', 'Mọi tình trạng', [{ v: 'qua_han', l: 'Có mốc quá hạn' }, { v: 'sap_han', l: 'Có mốc sắp đến hạn' }, { v: 'on', l: 'Đúng tiến độ' }])}
         <span class="count" id="cnt"></span>
@@ -325,8 +326,8 @@ async function viewProjects(Q) {
     </div>`;
   const draw = () => {
     const q = f.q.trim().toLowerCase();
-    const list = ps.filter(p => (!q || [p.tenDuAn, p.id, p.maInside, p.tenCDT, p.mstCDT, p.diaChi, p.tenDVHT].join(' ').toLowerCase().includes(q))
-      && (!f.phong || p.phong === f.phong) && (!f.pm || p.emailPM === f.pm) && (!f.kv || p.khuVuc === f.kv)
+    const list = ps.filter(p => (!q || [p.tenDuAn, p.id, p.maInside, p.tenCDT, p.mstCDT, p.diaChi, p.tenDVHT, p.mstDVHT].join(' ').toLowerCase().includes(q))
+      && (!f.phong || p.phong === f.phong) && (!f.pm || p.emailPM === f.pm) && (!f.kv || p.khuVuc === f.kv) && (!f.cn || p.maCN === f.cn)
       && (!f.stage || p._stage === f.stage) && (!f.health || p._health === f.health));
     $('#cnt').textContent = `${list.length}/${ps.length} dự án`;
     const box = $('#plist');
@@ -381,6 +382,7 @@ async function viewDetail(id, Q) {
     <div class="tabs" role="tablist">
       <button role="tab" data-t="info" aria-selected="true">Thông tin</button>
       <button role="tab" data-t="han" aria-selected="false">Hạn các mốc</button>
+      <button role="tab" data-t="files" aria-selected="false">File đính kèm</button>
       <button role="tab" data-t="hist" aria-selected="false">Lịch sử thay đổi (${r.history.length})</button>
     </div>
     <div id="tab"></div>`;
@@ -395,11 +397,13 @@ async function viewDetail(id, Q) {
         ${P.suaHan ? `<td><button class="btn ghost" data-han="${m.k}">Sửa hạn</button></td>` : ''}</tr>`).join('')}
       </tbody></table></div>
       <div class="panel-b note">Ngày khảo sát thực tế: ${p.ngayKhaoSat ? vn(p.ngayKhaoSat) : 'chưa nhập'}. Ngày làm việc không tính thứ 7, chủ nhật và ngày nghỉ lễ trong danh mục Ngày lễ. Cảnh báo trước hạn ${S.cfg.canhBaoTruoc} ngày.</div></div>`,
-    hist: () => r.history.length ? `<div class="panel"><div class="panel-b hist">${r.history.map(h => `<div class="h"><time>${esc(String(h.luc).replace('T', ' '))}</time><div><b>${esc(h.hanhDong)}</b> · ${esc(h.email)}${h.truong ? `<div class="chg">${esc(h.truong)}: <s>${esc(h.cu || '(trống)')}</s> → ${esc(h.moi || '(trống)')}</div>` : ''}${h.ghiChu ? `<div class="note">${esc(h.ghiChu)}</div>` : ''}</div></div>`).join('')}</div></div>` : `<div class="panel"><div class="empty">Chưa có thay đổi nào.</div></div>`
+    hist: () => r.history.length ? `<div class="panel"><div class="panel-b hist">${r.history.map(h => `<div class="h"><time>${esc(String(h.luc).replace('T', ' '))}</time><div><b>${esc(h.hanhDong)}</b> · ${esc(h.email)}${h.truong ? `<div class="chg">${esc(h.truong)}: <s>${esc(h.cu || '(trống)')}</s> → ${esc(h.moi || '(trống)')}</div>` : ''}${h.ghiChu ? `<div class="note">${esc(h.ghiChu)}</div>` : ''}</div></div>`).join('')}</div></div>` : `<div class="panel"><div class="empty">Chưa có thay đổi nào.</div></div>`,
+    files: () => ''
   };
   const show = (t, sync) => {
     $$('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.t === t)));
     $('#tab').innerHTML = tabs[t]();
+    if (t === 'files') attachPanel($('#tab'), 'du_an', p.id);
     $$('[data-han]').forEach(b => b.onclick = () => editDeadline(p, b.dataset.han));
     if (sync) setHashQuery('/du-an/' + encodeURIComponent(p.id), { tab: t === 'info' ? '' : t });
   };
