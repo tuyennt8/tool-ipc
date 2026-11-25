@@ -98,7 +98,9 @@ var IPC = (function () {
     { k: 'capIINgay', l: 'Cảnh báo đỏ cấp II: số ngày trước ngày CĐT yêu cầu hoàn thiện', t: 'int', v: 15 },
     { k: 'bbQuaNgay', l: 'Biên bản bàn giao: cảnh báo nếu chưa có sau (ngày) kể từ ngày FPT hoàn thiện', t: 'int', v: 7 },
     { k: 'pmKhongCapNhat', l: 'Báo PM không cập nhật quá (ngày làm việc)', t: 'int', v: 10 },
-    { k: 'gioCanhBao', l: 'Giờ gửi cảnh báo hằng ngày (0–23)', t: 'hour', v: 7 }
+    { k: 'gioCanhBao', l: 'Giờ gửi cảnh báo hằng ngày (0–23)', t: 'hour', v: 7 },
+    // 25/11/2026: báo cáo kỳ
+    { k: 'ngayChotSo', l: 'Ngày chốt số liệu tháng trước (1–28)', t: 'int', v: 5 }
   ];
   // "45, 30, 25" → [45, 30, 25] (giảm dần, không trùng); sai → null
   function parseMarks(s) {
@@ -519,6 +521,83 @@ var IPC = (function () {
     });
   }
 
+  /* ===== Báo cáo kỳ (25/11/2026): tháng, quý, nửa năm, năm, lũy kế năm; so kỳ liền trước và cùng kỳ năm trước =====
+   * Số liệu theo tháng ("atom") gộp theo tháng × PM × phòng × khu vực × hình thức:
+   *   quy mô, port gross (= port đầu tư), số dự án: theo ngày ký HĐHT; port online (= port FPT khai báo): theo ngày online.
+   * Tháng đã chốt lấy số ở sheet ChotSo; tháng chưa chốt tính trực tiếp từ dữ liệu dự án. */
+  var BC_HT = [{ v: 'CĐT', k: 'tt', l: 'Đầu tư trực tiếp' }, { v: 'Đối tác', k: 'xhh', l: 'XHH' }, { v: 'BQT', k: 'bqt', l: 'Ban quản trị' }];
+  var BC_METRICS = [{ k: 'portGross', l: 'Port gross' }, { k: 'portOnline', l: 'Port online' }, { k: 'quyMo', l: 'Quy mô (căn hộ)' }, { k: 'soDuAn', l: 'Số dự án ký HĐHT' }];
+  var BC_TYPES = [{ k: 'thang', l: 'Tháng' }, { k: 'quy', l: 'Quý' }, { k: 'nua', l: 'Nửa năm' }, { k: 'nam', l: 'Năm' }, { k: 'luyke', l: 'Lũy kế năm' }];
+  function htKey(v) { var s = str(v).toLowerCase(); for (var i = 0; i < BC_HT.length; i++) { if (s === BC_HT[i].v.toLowerCase() || s === BC_HT[i].l.toLowerCase() || s === BC_HT[i].k) return BC_HT[i].v; } return ''; }
+  function ym2(y, m) { return y + '-' + ('0' + m).slice(-2); }
+  // Kỳ → khoảng tháng [from, to] ('yyyy-mm'). n: tháng 1–12, quý 1–4, nửa năm 1–2, lũy kế: hết tháng n.
+  function bcRange(type, y, n) {
+    y = +y; n = +n || 1;
+    if (type === 'thang') return { from: ym2(y, n), to: ym2(y, n), label: 'Tháng ' + n + '/' + y };
+    if (type === 'quy') return { from: ym2(y, n * 3 - 2), to: ym2(y, n * 3), label: 'Quý ' + n + '/' + y };
+    if (type === 'nua') return { from: ym2(y, n === 1 ? 1 : 7), to: ym2(y, n === 1 ? 6 : 12), label: (n === 1 ? '1H' : '2H') + '/' + y };
+    if (type === 'nam') return { from: ym2(y, 1), to: ym2(y, 12), label: 'Năm ' + y };
+    if (type === 'luyke') return { from: ym2(y, 1), to: ym2(y, n), label: 'Lũy kế 01–' + ('0' + n).slice(-2) + '/' + y };
+    return null;
+  }
+  // Kỳ liền trước và cùng kỳ năm trước. Lũy kế: kỳ trước = lũy kế đến tháng trước (tháng 1 thì không có).
+  function bcCompare(type, y, n) {
+    y = +y; n = +n || 1;
+    var prev = type === 'thang' ? (n > 1 ? [y, n - 1] : [y - 1, 12]) : type === 'quy' ? (n > 1 ? [y, n - 1] : [y - 1, 4])
+      : type === 'nua' ? (n === 2 ? [y, 1] : [y - 1, 2]) : type === 'nam' ? [y - 1, 1] : (n > 1 ? [y, n - 1] : null);
+    return { cur: bcRange(type, y, n), prev: prev ? bcRange(type, prev[0], prev[1]) : null, yoy: bcRange(type, y - 1, n) };
+  }
+  function emptyM() { return { soDuAn: 0, quyMo: 0, portGross: 0, portOnline: 0 }; }
+  // Atom từ dữ liệu dự án cho các tháng trong [fromYm, toYm]
+  function liveAtoms(ps, users, fromYm, toYm) {
+    var map = {}, out = [];
+    function get(ym, p) {
+      var u = users[p.emailPM] || {}, ht = htKey(p.hinhThuc), key = ym + '|' + p.emailPM + '|' + p.khuVuc + '|' + ht;
+      if (!map[key]) { map[key] = Object.assign({ thang: ym, emailPM: p.emailPM || '', phong: u.phong || p.phong || '', khuVuc: p.khuVuc || '', hinhThuc: ht }, emptyM()); out.push(map[key]); }
+      return map[key];
+    }
+    (ps || []).forEach(function (p) {
+      if (p.daXoa === 'Có') return;
+      var k = isDateStr(p.ngayKyHDHT) ? p.ngayKyHDHT.slice(0, 7) : '';
+      if (k && k >= fromYm && k <= toYm) { var a = get(k, p); a.soDuAn++; a.quyMo += +p.quyMo || 0; a.portGross += +p.portDauTu || 0; }
+      var o = isDateStr(p.ngayOnline) ? p.ngayOnline.slice(0, 7) : '';
+      if (o && o >= fromYm && o <= toYm) get(o, p).portOnline += +p.portFPT || 0;
+    });
+    return out;
+  }
+  // Ghép: tháng đã chốt dùng số chốt, tháng khác dùng số tính trực tiếp
+  function mergeAtoms(live, snap, chotMonths) {
+    var c = {}; (chotMonths || []).forEach(function (m) { c[m] = true; });
+    return (live || []).filter(function (a) { return !c[a.thang]; }).concat((snap || []).filter(function (a) { return c[a.thang]; }));
+  }
+  // Gộp atom trong khoảng theo chiều dim ('phong' | 'emailPM' | 'khuVuc' | 'hinhThuc'); mỗi dòng có tổng và tách theo hình thức
+  function bcAggregate(atoms, range, dim) {
+    var rows = {}, total = null;
+    function blank(key) { var o = Object.assign({ key: key }, emptyM()); o.ht = {}; BC_HT.forEach(function (h) { o.ht[h.v] = emptyM(); }); return o; }
+    total = blank('');
+    if (range) (atoms || []).forEach(function (a) {
+      if (a.thang < range.from || a.thang > range.to) return;
+      var key = dim ? String(a[dim] || '') : '';
+      var r = rows[key] || (rows[key] = blank(key));
+      [r, total].forEach(function (t) {
+        BC_METRICS.forEach(function (m) { var v = +a[m.k] || 0; t[m.k] += v; if (t.ht[a.hinhThuc]) t.ht[a.hinhThuc][m.k] += v; });
+      });
+    });
+    return { rows: rows, total: total };
+  }
+  // Khoảng có số liệu không: có tháng đã chốt hoặc có atom trong khoảng
+  function bcHasData(atoms, chotMonths, range) {
+    if (!range) return false;
+    return (chotMonths || []).some(function (m) { return m >= range.from && m <= range.to; })
+      || (atoms || []).some(function (a) { return a.thang >= range.from && a.thang <= range.to; });
+  }
+  function bcDelta(cur, base, has) {
+    if (!has) return null;
+    var d = cur - base;
+    return { d: d, pct: base ? d / base : null };
+  }
+  function monthsBetween(fromYm, toYm) { var out = [], m = fromYm; while (m <= toYm) { out.push(m); m = addMonths(m + '-01', 1).slice(0, 7); } return out; }
+
   return {
     LISTS: LISTS, PHONG_DAU_TU: PHONG_DAU_TU, FIELDS: FIELDS, FIELD: FIELD, GROUPS: GROUPS, SYS_COLS: SYS_COLS,
     DS_FIELDS: DS_FIELDS, DS_FIELD: DS_FIELD, DS_SYS: DS_SYS, DS_LOAI: DS_LOAI, KY_MONTHS: KY_MONTHS,
@@ -530,7 +609,9 @@ var IPC = (function () {
     isWorkday: isWorkday, vn: vn, normDate: normDate, normInt: normInt, normPct: normPct, str: str, pctText: pctText,
     mstFormatOk: mstFormatOk, mstChecksumOk: mstChecksumOk, normalizeProject: normalizeProject,
     milestones: milestones, rail: rail, stage: stage, health: health, enrich: enrich, parseOverrides: parseOverrides,
-    validateProject: validateProject
+    validateProject: validateProject,
+    BC_HT: BC_HT, BC_METRICS: BC_METRICS, BC_TYPES: BC_TYPES, htKey: htKey, bcRange: bcRange, bcCompare: bcCompare, liveAtoms: liveAtoms,
+    mergeAtoms: mergeAtoms, bcAggregate: bcAggregate, bcHasData: bcHasData, bcDelta: bcDelta, monthsBetween: monthsBetween
   };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = IPC;

@@ -166,7 +166,8 @@ function navItems() {
   if (P.xemDuAn) items.push({ h: '#/du-an', l: 'Dự án', i: 'list' });
   if (P.xemDoiSoat) items.push({ h: '#/doi-soat', l: 'Đối soát', i: 'file' });
   if (P.xemKPI) items.push({ h: '#/kpi', l: 'KPI', i: 'target' });
-  if (P.xemDuAn) items.push({ h: '#/bao-cao', l: 'Báo cáo', i: 'report' });
+  if (P.xemDuAn) items.push({ h: '#/bao-cao-ky', l: 'Báo cáo kỳ', i: 'report' });
+  if (P.xemDuAn) items.push({ h: '#/bao-cao', l: 'Lọc & xuất', i: 'down' });
   if (P.import || P.quanTri) items.push({ h: '#/import', l: 'Import Excel', i: 'upload' });
   if (P.quanTri) items.push({ h: '#/quan-tri', l: 'Quản trị', i: 'gear' });
   return items;
@@ -192,7 +193,7 @@ function shell() {
 function markNav() {
   const h = location.hash || '#/';
   $$('.nav a, .mnav a').forEach(a => {
-    const t = a.getAttribute('href'), on = t === '#/' ? (h === '#/' || h === '#' || h === '') : h.startsWith(t);
+    const t = a.getAttribute('href'), on = t === '#/' ? (h === '#/' || h === '#' || h === '') : (h === t || h.startsWith(t + '/') || h.startsWith(t + '?'));
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
 }
@@ -229,6 +230,7 @@ async function route() {
       return await viewDsDetail(decodeURIComponent(m[1]), Q);
     }
     if (m[0] === 'kpi') return await viewKPI(Q);
+    if (m[0] === 'bao-cao-ky') return await viewBcKy(Q);
     if (m[0] === 'bao-cao') return await viewReport(Q);
     if (m[0] === 'menu') return viewMenu();
     if (!m.length) return await viewOverview(Q);
@@ -541,7 +543,8 @@ async function viewForm(id) {
 const IMPORT_SHEETS = [
   { s: 'DM_KhuVuc', l: 'Khu vực', admin: true }, { s: 'DM_ChiNhanh', l: 'Chi nhánh', admin: true },
   { s: 'NhanSu', l: 'Nhân sự', admin: true }, { s: 'NgayLe', l: 'Ngày lễ', admin: true },
-  { s: 'CauHinh', l: 'Cấu hình', admin: true }, { s: 'DuAn', l: 'Dự án', need: 'import' }, { s: 'DoiSoat', l: 'Đối soát', need: 'taoDoiSoat' }
+  { s: 'CauHinh', l: 'Cấu hình', admin: true }, { s: 'DuAn', l: 'Dự án', need: 'import' }, { s: 'DoiSoat', l: 'Đối soát', need: 'taoDoiSoat' },
+  { s: 'SoLieuCu', l: 'Số liệu cũ (báo cáo kỳ)', admin: true, all: true }
 ];
 const IMP = { file: '', sheets: {}, cur: '', res: null };
 function viewImport() {
@@ -551,7 +554,7 @@ function viewImport() {
     <div class="actions"><a class="btn" href="assets/bieu-mau-import.xlsx" download="BIEU_MAU_IMPORT_TOOL_IPC.xlsx">${ico('down')}Tải biểu mẫu</a></div></div>
     <div class="panel"><div class="panel-b">
       <ol class="steps"><li>Tải biểu mẫu, điền từ dòng 3 (dòng 2 là hướng dẫn, giữ nguyên).</li>
-      ${P.quanTri ? '<li>Nạp theo thứ tự: Khu vực → Chi nhánh → Nhân sự → Ngày lễ → Cấu hình → Dự án → Đối soát.</li>' : `<li>Bạn được import ${P.taoDoiSoat ? 'sheet Đối soát (hồ sơ đang đối soát)' : 'sheet Dự án, trong phạm vi dự án của mình'}.</li>`}
+      ${P.quanTri ? '<li>Nạp theo thứ tự: Khu vực → Chi nhánh → Nhân sự → Ngày lễ → Cấu hình → Dự án → Đối soát. Sheet Số liệu cũ (nếu có) nạp sau cùng.</li>' : `<li>Bạn được import ${P.taoDoiSoat ? 'sheet Đối soát (hồ sơ đang đối soát)' : 'sheet Dự án, trong phạm vi dự án của mình'}.</li>`}
       <li>Chọn sheet, bấm <b>Kiểm tra</b>, xem lỗi từng dòng, rồi bấm <b>Ghi dữ liệu</b>. Dòng có lỗi không được ghi.</li></ol>
       <div class="drop" id="drop" style="margin-top:14px"><p>Kéo file Excel vào đây, hoặc</p><label class="btn blue">Chọn file .xlsx<input type="file" id="file" accept=".xlsx,.xls" hidden></label><p class="muted small" id="fname">${IMP.file ? esc(IMP.file) : 'Chưa chọn file'}</p></div>
     </div></div>
@@ -596,7 +599,8 @@ function drawImport() {
   box.innerHTML = `<div class="panel" style="margin-top:16px"><div class="panel-b">
     <div class="sheet-tabs">${keys.map(k => `<button type="button" data-s="${k}" aria-pressed="${k === IMP.cur}">${esc(IMPORT_SHEETS.find(x => x.s === k).l)} <em>${IMP.sheets[k].length} dòng</em></button>`).join('')}</div>
     <div class="actions"><button class="btn blue" id="bCheck">Kiểm tra ${rows.length} dòng ${esc(meta.l.toLowerCase())}</button>
-    ${res && !committed ? `<button class="btn primary" id="bCommit"${res.length - nErr ? '' : ' disabled'}>Ghi dữ liệu (${res.length - nErr} dòng hợp lệ)</button>` : ''}</div>
+    ${res && !committed ? `<button class="btn primary" id="bCommit"${res.length - nErr && !(meta.all && nErr) ? '' : ' disabled'}>Ghi dữ liệu (${res.length - nErr} dòng hợp lệ)</button>` : ''}</div>
+    ${res && !committed && meta.all ? `<p class="note" style="margin:10px 0 0">Sheet này ghi cả file một lần: sửa hết dòng lỗi rồi kiểm tra lại. Số của mỗi tháng trong file sẽ thay toàn bộ số đã chốt của tháng đó.</p>` : ''}
     ${res && !committed && nWarn ? `<label class="f" style="margin-top:12px;display:flex;gap:8px;align-items:center"><input type="checkbox" id="cfWarn"> Tôi đã xem ${nWarn} dòng có cảnh báo và vẫn muốn ghi các dòng đó</label>` : ''}
     ${res ? `<p class="small" style="margin:12px 0 0">${committed ? `<span class="res-ok">Đã ghi ${res.filter(r => r.saved).length}/${res.length} dòng.</span>` : `Hợp lệ ${res.length - nErr - nWarn} · Có cảnh báo ${nWarn} · Có lỗi ${nErr}`}</p>` : ''}
   </div>

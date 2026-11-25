@@ -322,3 +322,31 @@ dialog.dlg:has(details.mail) { width: min(900px, calc(100vw - 32px)); }
 .btn.ghost.danger { color: var(--red); }
 .name .linkbtn { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ---------- Báo cáo kỳ ---------- */
+.bc-cmp { display: grid; gap: 2px; margin-top: 8px; font-size: 12.5px; color: var(--ink-2); }
+.bc-cmp > span { display: flex; justify-content: space-between; gap: 8px; }
+.dl { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dl small { font-size: 11.5px; }
+.dl.up { color: var(--green-ink); }
+.dl.down { color: var(--red); }
+.dl.eq { color: var(--ink-3); }
+.t.bc td, .t.bc th { font-variant-numeric: tabular-nums; }
+.t.bc tbody th, .t.bc tfoot th { text-align: left; font-weight: 600; color: var(--ink); background: none; position: static; font-size: 14px; border-bottom: 1px solid var(--line-2); }
+.t.bc tfoot td, .t.bc tfoot th { border-top: 2px solid var(--line); background: #F8FAFC; font-weight: 700; }
+.chot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.chot { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 10px; display: grid; gap: 4px; font-size: 13px; }
+.chot span { color: var(--ink-3); }
+.chot.on { border-color: var(--green); background: var(--green-soft); }
+.chot.on span { color: var(--green-ink); }
+.chot .row { display: flex; gap: 6px; flex-wrap: wrap; }
+@media (max-width: 860px) {
+  .t.bc thead { display: none; }
+  .t.bc, .t.bc tbody, .t.bc tfoot, .t.bc tr { display: block; }
+  .t.bc tr { border-bottom: 1px solid var(--line); padding: 8px 12px; }
+  .t.bc tbody th, .t.bc tfoot th { display: block; border: 0; padding: 4px 0; }
+  .t.bc td { display: flex; justify-content: space-between; gap: 12px; border: 0; padding: 3px 0; }
+  .t.bc td::before { content: attr(data-l); color: var(--ink-3); font-weight: 400; }
+  .t.bc tfoot td, .t.bc tfoot th { border-top: 0; background: none; }
+  .t.bc tfoot tr { background: #F8FAFC; border-top: 2px solid var(--line); }
+}
